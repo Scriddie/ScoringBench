@@ -282,6 +282,12 @@ def _make_flexcode(regressor):
     return factory
 
 
+def _make_condensite_lgbm():
+    pytest.importorskip("condensite")
+    from scoringbench.univariate.wrappers.condensite_lgbm_wrapper import CondensiteLGBMWrapper
+    return CondensiteLGBMWrapper()
+
+
 def _make_surjectors(flow):
     """Build a zero-argument factory for a Surjectors flow (uses its preset)."""
     def factory():
@@ -382,6 +388,11 @@ MODEL_FACTORIES += [
 MODEL_FACTORIES += [
     pytest.param((f"FlexCodeWrapper[{_reg}]", _make_flexcode(_reg)), id=f"FlexCodeWrapper[{_reg}]")
     for _reg in ("xgboost", "randomforest")
+]
+
+# condensité CDE-as-regression with a LightGBM regressor.
+MODEL_FACTORIES += [
+    pytest.param(("CondensiteLGBMWrapper", _make_condensite_lgbm), id="CondensiteLGBMWrapper"),
 ]
 
 # Surjectors (JAX) conditional normalizing flow — one registry entry per flow.

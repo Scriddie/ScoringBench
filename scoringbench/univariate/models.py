@@ -55,6 +55,7 @@ from .wrappers import (
     ForestDiffusionWrapper,
     CDEWrapper,
     FlexCodeWrapper,
+    CondensiteLGBMWrapper,
     SurjectorsWrapper,
     EXAONETabularWrapper,
     LimiXWrapper,
@@ -348,5 +349,6 @@ MODELS = {
 
     **dict_cde_models,
     **dict_flexcode_models,
+    "condensite_lgbm_v0_0_2": lambda: CondensiteLGBMWrapper(),
     **dict_surjectors_models,
 }
