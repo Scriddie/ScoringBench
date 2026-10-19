@@ -12,6 +12,7 @@ Usage
     python run_bench_regression.py --lite    # 2-fold CV (fast smoke test)
     python run_bench_regression.py --output_dir my_results/
     python run_bench_regression.py --seed 0 --sample_size 1000
+    python run_bench_regression.py --models my_model_v1   # only these MODELS keys
 """
 
 import sys
@@ -53,6 +54,11 @@ def parse_args():
     p.add_argument("--n_repeats_cv",  type=int, default=cfg.N_REPEATS_CV,
                    help="Number of repeated CV rounds (each uses a fresh resample)")
     p.add_argument(
+        "--models", nargs="+", default=None,
+        help="Keys of MODELS to run (default: all). Results of other models in "
+             "--output_dir are left untouched.",
+    )
+    p.add_argument(
         "--dataset_index", type=int, default=None,
         help="0-based index into DATASETS_CONFIG. If set, only that one dataset "
              "is benchmarked (for SLURM array jobs). If omitted, all datasets run.",
@@ -63,6 +69,15 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     set_seed(args.seed)
+
+    if args.models is not None:
+        unknown = [m for m in args.models if m not in MODELS]
+        if unknown:
+            print(f"Error: unknown --models {unknown}; available: {sorted(MODELS)}")
+            sys.exit(1)
+        model_factories = {m: MODELS[m] for m in args.models}
+    else:
+        model_factories = MODELS
 
     if args.output_dir:
         output_dir = Path(args.output_dir)
@@ -94,7 +109,7 @@ if __name__ == "__main__":
 
     run_benchmark(
         datasets_config=datasets_to_run,
-        model_factories=MODELS,
+        model_factories=model_factories,
         output_dir=output_dir,
         n_folds=n_folds,
         n_repeats_cv=args.n_repeats_cv,

@@ -207,21 +207,23 @@ their behalf without confirmation**:
 2. **Add your custom wrapper with a unique name** — see `scoringbench/univariate/wrappers/`
    and inherit `ProbabilisticWrapper` (Steps 3–7 above). The `model_name` key in
    `MODELS` must be unique and version-stamped (Step 0).
-3. **Run the benchmark** to produce raw per-(model, dataset) results:
+3. **Run the benchmark for the new model only**, writing into the ledger folder
+   of the output repository (other models' results there are left untouched):
    ```bash
-   python run_bench_regression.py
+   python run_bench_regression.py --models <model_name> \
+       --output_dir output/output_univariate_scoringbench_d1_n3000
    ```
-   Outputs land in `output/raw/<model_name>/<dataset_name>.parquet`. On a cluster
-   you can fan out across datasets:
+   Outputs land in `<output_dir>/raw/<model_name>/<dataset_name>.parquet`. On a
+   cluster you can fan out across datasets:
    ```bash
-   sbatch --array=0-103 run_benchmark.sbatch
+   sbatch --array=0-100 run_benchmark.sbatch
    ```
 4. **Aggregate + rank** to build the leaderboard:
    ```bash
-   python autorank_leaderboard.py
+   python autorank_leaderboard.py --output_dir output/output_univariate_scoringbench_d1_n3000
    ```
-   This writes aggregated `output/<model_name>.parquet` and the JSON ranking
-   files + LaTeX tables in `output/figures/leaderboard/`.
+   This writes aggregated `<output_dir>/<model_name>.parquet` and the JSON ranking
+   files + LaTeX tables in `<output_dir>/figures/leaderboard/`.
 5. **Commit the ledger to git LFS.** Commit the aggregated per-model Parquet files
    (`output/*.parquet`) and the generated JSON ranking files in
    `output/figures/leaderboard/`. Since the output repository is separate from the
