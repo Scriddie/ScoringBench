@@ -67,10 +67,11 @@ Typical directory structure:
 
 ## Workflow
 
-1. git clone --recurse-submodules https://github.com/jonaslandsgesell/ScoringBench.git
+1. `git clone --recurse-submodules https://github.com/jonaslandsgesell/ScoringBench.git`
 2. Add your custom wrapper with a unique name (see `scoringbench/univariate/wrappers/` and inherit `ProbabilisticWrapper`).
-3. python run_bench_regression.py
-4. python autorank_leaderboard.py
+3. Run only your model, writing into the ledger folder of the output repository (other models' results there are left untouched):
+   `python run_bench_regression.py --models <model_name> --output_dir output/output_univariate_scoringbench_d1_n3000`
+4. `python autorank_leaderboard.py --output_dir output/output_univariate_scoringbench_d1_n3000`
 5. Commit aggregated per-model Parquet files (`output/*.parquet`) and the generated JSON ranking files in `output/figures/leaderboard/` to git LFS. Since the output repository is separate from the main repository, push to both. This serves as a public ledger and allows traceability.
 6. Create a pull request to the ScoringBench repository for review; contributions that meet standards will be merged.
 7. Upon merge, https://scoringbench.com will automatically display the updated leaderboard; the data is also available in the repository.
@@ -178,8 +179,8 @@ assert not np.any(np.isinf(dist.mean())), "Predictions contain Inf"
 Run the full benchmark in parallel across datasets:
 
 ```bash
-# All datasets (0–103) in parallel:
-sbatch --array=0-103 run_benchmark.sbatch
+# All datasets (0–100) in parallel:
+sbatch --array=0-100 run_benchmark.sbatch
 
 # Single dataset:
 sbatch --array=42 run_benchmark.sbatch
