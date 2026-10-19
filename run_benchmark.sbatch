@@ -2,8 +2,8 @@
 # Run all datasets in parallel via a SLURM array job.
 # Each task handles exactly one dataset (0-indexed).
 #
-# Usage — parallel (one job per dataset, 0..103):
-#   sbatch --array=0-103 run_benchmark.sbatch
+# Usage — parallel (one job per dataset, 0..100):
+#   sbatch --array=0-100 run_benchmark.sbatch
 #
 # Usage — single dataset (e.g. dataset 7 only):
 #   sbatch --array=7 run_benchmark.sbatch
