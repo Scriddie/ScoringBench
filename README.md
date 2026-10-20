@@ -21,36 +21,6 @@ ScoringBench is a compact benchmarking suite for probabilistic regression on tab
 - `run_bench_regression_multivariate.py`: run the multivariate (d-dimensional target) benchmark. Defaults to writing `output_multivariate_d{d}_n{sample_size}/`. See the [Multivariate benchmark](#multivariate-benchmark-d-dimensional-targets) section.
 - `autorank_leaderboard.py`: compute statistical rankings with critical-difference diagrams; generates JSON data and LaTeX tables in `<output_dir>/figures/leaderboard/`. Use `--output_dir` to choose the input/output folder (default `output_3000`). Works for both univariate and multivariate outputs.
 
-Each raw `coverage_{level}` column is a *marginal* coverage probability: the
-empirical coverage of the central interval at one nominal level, marginalized
-over all test rows of the fold. Leaderboard outputs therefore report its
-absolute deviation from nominal as the **absolute marginal coverage error**,
-`absolute_marginal_coverage_error_*` (for example, `coverage_80` becomes
-`absolute_marginal_coverage_error_80`). Both the autorank and Mean-Std rankings
-use `mean_cv(abs(coverage - nominal))` **within each dataset**, with equal
-weight per available fold and lower error preferred. Absolute errors are taken
-before fold averaging, so over-/under-coverage cannot cancel between folds.
-Coverages are not pooled across datasets.
-
-The **mean absolute marginal coverage error** (`amce` column internally) is
-reported as `mean_absolute_marginal_coverage_error`, with lower values
-preferred. For each CV fold it averages the absolute marginal coverage error
-`abs(empirical_coverage - nominal_coverage)` over the six central interval
-levels 20%, 40%, 60%, 80%, 90%, and 95%. The leaderboard then averages these
-fold-level values within each dataset before comparing models:
-`mean_cv(mean_levels(abs(coverage - nominal)))`. This is not the absolute error
-of fold-averaged coverage. All six levels are required; an incomplete fold has
-a missing value rather than an average over fewer levels.
-
-The mean absolute marginal coverage error is computed post hoc only by the
-leaderboard from existing fold coverage columns; benchmark scoring and persisted
-fold results are unchanged. Rerun
-`python autorank_leaderboard.py --output_dir output_3000` to regenerate the
-rankings, JSON, and figures. Individual levels remain available under
-`absolute_marginal_coverage_error_*`; the combined metric is
-`mean_absolute_marginal_coverage_error`.
-It is a diagnostic, not a proper scoring rule.
-
 ## Related tools
 
 - [autorank](https://sherbold.github.io/autorank/) — statistical ranking and critical-difference diagrams
@@ -61,16 +31,16 @@ Each run writes per-dataset per-model raw Parquet files to `output/raw/{model_na
 
 Typical directory structure:
 
-- `output/raw/{model_name}/{dataset_name}.parquet` — raw results organized by model and dataset
-- `output/{model_name}.parquet` — aggregated per-model parquet files (after running autorank_leaderboard.py)
+- `<output_dir>/raw/{model_name}/{dataset_name}.parquet` — raw results organized by model and dataset
+- `<output_dir>/{model_name}.parquet` — aggregated per-model parquet files (after running autorank_leaderboard.py)
 
 
 ## Workflow
 
 1. `git clone --recurse-submodules https://github.com/jonaslandsgesell/ScoringBench.git`
 2. Add your custom wrapper with a unique name (see `scoringbench/univariate/wrappers/` and inherit `ProbabilisticWrapper`).
-3. Run only your model, writing into the ledger folder of the output repository (other models' results there are left untouched):
-   `python run_bench_regression.py --models <model_name> --output_dir output/output_univariate_scoringbench_d1_n3000`
+3. Run (optionally only) your model, writing into the ledger folder of the output repository (other models' results there) are left untouched:
+   `python run_bench_regression.py [--models <model_name>] --output_dir output/output_univariate_scoringbench_d1_n3000`
 4. `python autorank_leaderboard.py --output_dir output/output_univariate_scoringbench_d1_n3000`
 5. Commit aggregated per-model Parquet files (`output/*.parquet`) and the generated JSON ranking files in `output/figures/leaderboard/` to git LFS. Since the output repository is separate from the main repository, push to both. This serves as a public ledger and allows traceability.
 6. Create a pull request to the ScoringBench repository for review; contributions that meet standards will be merged.
