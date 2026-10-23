@@ -198,6 +198,16 @@ class CopulaMultiOutputWrapper(_ComposedMultiOutputWrapper):
     * **Family set.**  The vine is fit with local-likelihood transformation
       kernel (TLL) pair-copulas: fully nonparametric, capturing dependence
       shapes no parametric family can, at the cost of a heavier fit.
+    * **Out-of-fold PITs.**  For a TFM, ``fit(X, Y)`` loads ``(X, Y)`` into the
+      in-context training set, so an *in-sample* PIT ``F_{Y_k|X_i}(y_{ik})`` is
+      evaluated with row ``i`` still in the model's context.  Those PITs are
+      biased (over-concentrated) and bias the copula fit on them.  We therefore
+      cross-fit the pseudo-observations: the training rows are split into
+      ``n_pit_folds`` internal folds, each fold's PITs are computed from a
+      marginal fit on the *other* folds only, and the copula is fit on the
+      pooled out-of-fold PITs.  The marginals used to invert at sampling time
+      are still fit on the full training data -- cross-fitting only de-biases
+      the dependence estimate, not the predictive marginals.
     * **PIT jitter.**  TabPFN's piecewise bar CDF (and degenerate constant rows)
       produce *tied* pseudo-observations, which make a vine see spurious
       independence.  A tiny reproducible uniform jitter (``pit_jitter``) breaks
@@ -205,28 +215,65 @@ class CopulaMultiOutputWrapper(_ComposedMultiOutputWrapper):
     """
 
     def __init__(self, sampler_factory, n_draws=int(N_DRAWS), seed=int(SEED),
-                 pit_jitter: float = 1e-4, num_threads: int = 1):
+                 pit_jitter: float = 1e-4, num_threads: int = 1,
+                 n_pit_folds: int = 5):
         super().__init__(sampler_factory, n_draws=n_draws, seed=seed)
         self._pit_jitter = float(pit_jitter)
         self._num_threads = int(num_threads)
+        self._n_pit_folds = int(n_pit_folds)
         self._copula = None
+
+    def _oof_pits(self, X, Y):
+        """Out-of-fold PIT pseudo-observations ``U`` of shape ``(n, d)``.
+
+        Internal ``n_pit_folds``-fold cross-fitting: for each fold a fresh
+        sampler is fit on the *other* folds and used to PIT the held-out rows,
+        so no row is ever PITted by a model that had it in context.  Falls back
+        to in-sample PITs (with a warning) when there are too few rows to split.
+        """
+        from sklearn.model_selection import KFold
+
+        n = X.shape[0]
+        U = np.empty((n, self._d), dtype=np.float64)
+
+        n_folds = self._n_pit_folds
+        if n_folds < 2 or n < 2 * n_folds:
+            warnings.warn(
+                f"copula: out-of-fold PITs disabled (n={n}, n_pit_folds="
+                f"{self._n_pit_folds}); falling back to in-sample PITs, which "
+                "bias the copula for in-context (TFM) marginals.",
+                RuntimeWarning, stacklevel=2,
+            )
+            for k in range(self._d):
+                U[:, k] = self._samplers[k].cdf(X, Y[:, k])
+            return np.clip(U, 1e-6, 1 - 1e-6)
+
+        kf = KFold(n_splits=n_folds, shuffle=True, random_state=self._seed)
+        for train_idx, test_idx in kf.split(X):
+            X_tr, X_te = X[train_idx], X[test_idx]
+            for k in range(self._d):
+                s = self._make_sampler()
+                s.fit(X_tr, Y[train_idx, k])           # fit WITHOUT the held-out rows
+                U[test_idx, k] = s.cdf(X_te, Y[test_idx, k])
+        return np.clip(U, 1e-6, 1 - 1e-6)
 
     def _fit_dims(self, X, Y):
         import pyvinecopulib as pv
 
-        n = X.shape[0]
-        U = np.empty((n, self._d), dtype=np.float64)
+        # Marginals used for inversion at sampling time: fit on the FULL training
+        # data, conditioning on features only (as in the independent wrapper).
         for k in range(self._d):
             s = self._make_sampler()
-            s.fit(X, Y[:, k])                          # condition on FEATURES only
-            # PIT with each row's own conditional CDF F_{Y_k|X_i}.
-            u_col = s.cdf(X, Y[:, k])
-            U[:, k] = np.clip(u_col, 1e-6, 1 - 1e-6)
+            s.fit(X, Y[:, k])
             self._samplers.append(s)
 
         if self._d == 1:
             self._copula = None
             return
+
+        # Dependence estimate uses OUT-OF-FOLD PITs so no row is PITted while in
+        # its own marginal's (in-context) training set -- see _oof_pits.
+        U = self._oof_pits(X, Y)
 
         # -- break PIT ties so the vine sees strictly-continuous pseudo-obs.
         # TabPFN's bar CDF is piecewise, and degenerate/constant conditional

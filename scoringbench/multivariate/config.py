@@ -59,6 +59,13 @@ CHAINED_N_ORDERS = 3
 # degenerate constant rows.  0 disables jitter.
 COPULA_PIT_JITTER = 1e-4
 
+# Number of internal folds used to cross-fit the copula PIT pseudo-observations.
+# Each training row is PITted by a marginal fit WITHOUT that row in context, so
+# the dependence estimate is not biased by in-sample (in-context TFM) PITs.
+# Set to 1 (or <2) to fall back to in-sample PITs.  The predictive marginals are
+# always fit on the full training data regardless of this setting.
+COPULA_PIT_FOLDS = 5
+
 
 # ---------------------------------------------------------------------------
 # Source 2: synthetic (nonlinear means with randomized R-vine residuals)

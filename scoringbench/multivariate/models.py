@@ -110,6 +110,7 @@ def _make_copula(sampler_factory: Callable[[], object]):
         n_draws=int(cfg.N_DRAWS),
         seed=int(cfg.SEED),
         pit_jitter=float(getattr(cfg, "COPULA_PIT_JITTER", 1e-4)),
+        n_pit_folds=int(getattr(cfg, "COPULA_PIT_FOLDS", 5)),
     )
 
 
