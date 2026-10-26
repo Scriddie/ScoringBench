@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "n_datasets": 56,
+ "n_datasets": 55,
  "how_built": "curated multi-target OpenML datasets",
  "require_stage2": false,
  "datasets": [
@@ -614,21 +614,6 @@
     "nswprice",
     "vicprice"
    ]
-  },
-  {
-   "openml_id": 45013,
-   "name": "jannis",
-   "n_rows": 57580,
-   "target_cols": [
-    "V2",
-    "V6",
-    "V1",
-    "V3",
-    "V4",
-    "V5"
-   ],
-   "feature_cols": null,
-   "drop_cols": []
   },
   {
    "drop_cols": [],
