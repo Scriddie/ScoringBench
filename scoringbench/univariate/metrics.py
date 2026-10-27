@@ -129,14 +129,14 @@ BOUNDED_DIAGNOSTIC_KEYS = (
     *[f"coverage_{c}" for c in COVERAGE_LEVELS],
 )
 
-# Number of (chunk, n_bins, n_bins) intermediates held concurrently by the
-# disjoint-slab branch of uniform_slab_pairwise_distance (the closed form keeps
-# ~a dozen edge/offset/power-difference temporaries — left/right corners, two
-# _pow_diff calls, num, closed, D, etc. — all of the returned matrix's shape,
-# with NO quadrature-node axis).  Used to size the per-sample energy-score
-# term-2 chunk against the true peak rather than the returned matrix alone.
-# Conservative (rounded up) so the peak lands within the element budget.
-_T2_LIVE_INTERMEDIATES = 2
+# Peak number of temporaries of the returned matrix's shape held concurrently by
+# uniform_slab_pairwise_distance (left/right corners, two _pow_diff calls, num,
+# closed, D, ...).  Measured on CUDA: ~14 for slab bins and ~24 when Dirac bins
+# trigger the point-mass dispatch.  Used to size the energy-score term-2 row
+# blocks (shared grid) and sample chunks (per-sample grid) against the true peak
+# rather than the returned matrix alone; rounded up so the peak stays within
+# the element budget.
+_T2_LIVE_INTERMEDIATES = 25
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +331,11 @@ def compute_energy_score_histogram_corrected(
         beta in (0, 2] the exact score is non-negative, so the final clamp only
         removes float roundoff below zero.
 
+        Memory: the pairwise term ``E|X - X'|^beta`` is accumulated over row
+        blocks of the bin-pair matrix (shared grid) or over sample chunks
+        (per-sample grid), both sized from an element budget, so the peak does
+        not grow with ``n_bins^2`` for fine grids.
+
         Parameters
         ----------
         probas : torch.Tensor
@@ -387,8 +392,11 @@ def compute_energy_score_histogram_corrected(
         # no longer a hidden quadrature-node blow-up to size against.
         elem_budget = 64_000_000
         if shared:
-            # term1 intermediates are (chunk, n_bins); term2 uses an (n_bins, n_bins) matrix.
+            # term1 intermediates are (chunk, n_bins).
             chunk_size_t1 = max(1, min(n_samples, elem_budget // max(1, n_bins)))
+            # term2 builds the (n_bins, n_bins) matrix in row blocks; each block
+            # of r rows holds ~_T2_LIVE_INTERMEDIATES (r, n_bins) temporaries.
+            rows_t2 = max(1, min(n_bins, elem_budget // max(1, n_bins * _T2_LIVE_INTERMEDIATES)))
         else:
             # term1 intermediates are (chunk, n_bins).
             chunk_size_t1 = max(1, min(n_samples, elem_budget // max(1, n_bins)))
@@ -401,9 +409,10 @@ def compute_energy_score_histogram_corrected(
             chunk_size_t2 = max(1, min(256, elem_budget // t2_peak_per_sample))
 
         # The shared-grid term-2 matrix D is built per-β inside the loop below
-        # (not cached for all β): each β uses it once, so caching all of them
-        # would hold len(betas) dense (n_bins, n_bins) float64 matrices at once
-        # — the main OOM driver. Per-β keeps the peak at a single n_bins² matrix.
+        # (not cached for all β), and within each β in row blocks of rows_t2
+        # bins, so that only a (rows_t2, n_bins) slice of D and its temporaries
+        # is alive at a time instead of ~_T2_LIVE_INTERMEDIATES full n_bins²
+        # matrices (the OOM driver on small GPUs for fine grids such as TabPFN's).
 
         # Pre-compute beta-independent term1 quantities to avoid recomputing them
         # for every beta value (12 betas → 12x speedup for this part).
@@ -465,10 +474,13 @@ def compute_energy_score_histogram_corrected(
 
             # ---- Term 2: 0.5 * E|X - X'|^beta ----
             if shared:
-                # Build D for this β only, then free it (see note above).
-                D = uniform_slab_pairwise_distance(bin_edges, beta, eps=eps)
-                term2 = 0.5 * torch.einsum("si,ij,sj->s", probas, D, probas)
-                del D
+                # term2_s = ½ Σ_B Σ_{i∈B} Σ_j p_si D_ij p_sj over row blocks B.
+                term2 = torch.zeros(n_samples, dtype=probas.dtype, device=device)
+                for r0 in range(0, n_bins, rows_t2):
+                    rows = slice(r0, min(r0 + rows_t2, n_bins))
+                    D = uniform_slab_pairwise_distance(bin_edges, beta, eps=eps, rows=rows)
+                    term2 += 0.5 * torch.einsum("si,ij,sj->s", probas[:, rows], D, probas)
+                    del D
             else:
                 # The per-sample pairwise term materialises a (chunk, n_bins,
                 # n_bins) tensor; with fine grids this can be very large.
