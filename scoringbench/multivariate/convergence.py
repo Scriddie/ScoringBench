@@ -60,6 +60,8 @@ adaptive_sample_until_converged(sample_dgp, p, *, ...) -> (groups, info)
 
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from typing import Callable, Literal
 
@@ -88,9 +90,66 @@ DEFAULT_EPSILON: float = 1.01
 # the diagnostic is a summary statistic so a subsample is sufficient.
 DEFAULT_MAX_INSTANCES: int = 512
 # Hard cap on total draws per instance in the adaptive top-up loop.
-DEFAULT_MAX_SAMPLES: int = 10_000
+DEFAULT_MAX_SAMPLES: int = 40_000
 # Draws added per convergence-check iteration in the adaptive top-up loop.
 DEFAULT_BATCH_SIZE: int = 500
+
+
+# ---------------------------------------------------------------------------
+# Sample-cap logging
+# ---------------------------------------------------------------------------
+# There is no wall-clock budget: the adaptive top-up loop draws until R̂
+# converges or until DEFAULT_MAX_SAMPLES is reached.  Hitting the cap means the
+# ensemble did NOT converge, so we record it to a log file for later audit.
+# The path defaults to ``convergence_cap.log`` in the current working directory
+# (i.e. beside the benchmark run); override with the SCORINGBENCH_CONV_LOG env
+# var.
+CAP_LOG_FILE: str = os.environ.get("SCORINGBENCH_CONV_LOG", "convergence_cap.log")
+
+_cap_logger: logging.Logger | None = None
+
+
+def _get_cap_logger() -> logging.Logger:
+    """Return the sample-cap logger, attaching a file handler once."""
+    global _cap_logger
+    if _cap_logger is None:
+        logger = logging.getLogger("scoringbench.multivariate.convergence")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        if not any(
+            isinstance(h, logging.FileHandler)
+            and getattr(h, "baseFilename", None) == os.path.abspath(CAP_LOG_FILE)
+            for h in logger.handlers
+        ):
+            handler = logging.FileHandler(CAP_LOG_FILE)
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+            )
+            logger.addHandler(handler)
+        _cap_logger = logger
+    return _cap_logger
+
+
+def log_sample_cap_hit(
+    *,
+    model: str,
+    n_samples: int,
+    rhat_max: float | None,
+    max_samples: int = DEFAULT_MAX_SAMPLES,
+    epsilon: float = DEFAULT_EPSILON,
+) -> None:
+    """Record that the adaptive top-up loop stopped at the sample cap.
+
+    Appends one line to :data:`CAP_LOG_FILE` noting that ``model`` reached
+    ``max_samples`` draws without the multivariate R̂ falling below
+    ``epsilon`` — i.e. the Monte-Carlo ensemble is *not* converged.
+    """
+    rhat_str = f"{rhat_max:.4f}" if rhat_max is not None else "unknown"
+    _get_cap_logger().warning(
+        "sample cap hit: model=%s n_samples=%d max_samples=%d "
+        "rhat_max=%s epsilon=%.3f (not converged)",
+        model, n_samples, max_samples, rhat_str, epsilon,
+    )
 
 
 # ---------------------------------------------------------------------------

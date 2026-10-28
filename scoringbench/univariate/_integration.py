@@ -94,6 +94,7 @@ def uniform_slab_pairwise_distance(
     beta: float,
     *,
     eps: float,
+    rows: slice | None = None,
 ) -> torch.Tensor:
     """Exact ``E|X − X'|^β`` for two independent draws from *uniform slabs*.
 
@@ -145,13 +146,18 @@ def uniform_slab_pairwise_distance(
         Energy-score exponent ``β ∈ (0, 2]``.
     eps : float
         Width threshold below which a bin is treated as a Dirac point mass.
+    rows : slice, optional
+        Restrict the row bins ``i`` to ``rows`` (all column bins ``j`` are
+        kept), so that callers can build ``D`` in row blocks and bound the
+        memory of its temporaries.  ``None`` returns all rows.
 
     Returns
     -------
     torch.Tensor
-        Pairwise distance matrix ``D`` with shape ``(n_bins, n_bins)`` (shared)
-        or ``(n_samples, n_bins, n_bins)`` (per-sample), where
-        ``D[..., i, j] = E|X_i − X'_j|^β``.
+        Pairwise distance matrix ``D`` with shape ``(n_rows, n_bins)`` (shared)
+        or ``(n_samples, n_rows, n_bins)`` (per-sample), where
+        ``D[..., i, j] = E|X_i − X'_j|^β`` and ``n_rows = n_bins`` unless
+        ``rows`` is given.
     """
     p = beta + 2.0
     q = beta + 1.0
@@ -161,13 +167,14 @@ def uniform_slab_pairwise_distance(
     m = 0.5 * (a + b)                         # (..., n_bins) bin locations
 
     # Broadcast bin i (rows) against bin j (cols): add a trailing/leading axis.
-    ai, aj = a[..., :, None], a[..., None, :]
-    bi, bj = b[..., :, None], b[..., None, :]
-    mi, mj = m[..., :, None], m[..., None, :]
+    rows = slice(None) if rows is None else rows
+    ai, aj = a[..., rows, None], a[..., None, :]
+    bi, bj = b[..., rows, None], b[..., None, :]
+    mi, mj = m[..., rows, None], m[..., None, :]
     # Floored widths keep the slab-slab division finite; the Dirac quadrants
     # (where the true width is ~0) are overwritten below, so the floor never
     # leaks into the returned value.
-    wi = w[..., :, None].clamp(min=eps)
+    wi = w[..., rows, None].clamp(min=eps)
     wj = w[..., None, :].clamp(min=eps)
 
     def h(d: torch.Tensor) -> torch.Tensor:
@@ -240,7 +247,7 @@ def uniform_slab_pairwise_distance(
     # --- Dirac dispatch (only if any bin is (near-)zero width). ---
     zero = w <= eps                          # (..., n_bins)
     if bool(zero.any()):
-        zi = zero[..., :, None]              # bin i is a point mass
+        zi = zero[..., rows, None]           # bin i is a point mass
         zj = zero[..., None, :]              # bin j is a point mass
 
         # Stable (1/w) ∫ |c − x|^β dx over a slab, given the two signed offsets

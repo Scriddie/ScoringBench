@@ -33,6 +33,9 @@ CACHE_DIR = Path.home() / '.cache' / 'scoringbench' / 'datasets'
 #   models blow up on the feature count. Not worth the wall-clock.
 SKIPPED_OPENML_IDS = {
     42572,  # Santander_transaction_value taking too long to run
+    42369,  # weather_izmir: identical data to KEEL 'Wizmir' (same 1461 rows,
+            # 9 features, same X/y and row order); name-only dedup misses it
+            # (similarity 0.53 < 0.85). Keep the KEEL copy, drop this one.
 }
 
 

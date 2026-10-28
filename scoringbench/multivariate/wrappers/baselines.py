@@ -33,7 +33,6 @@ All three emit a :class:`MultivariateSamplePrediction` of shape
 from __future__ import annotations
 
 import math
-import time
 import warnings
 from typing import Callable
 
@@ -48,6 +47,7 @@ from ..convergence import (
     DEFAULT_MAX_SAMPLES,
     DEFAULT_N_GROUPS,
     assess_sample_prediction,
+    log_sample_cap_hit,
 )
 from ..prediction import MultivariateSamplePrediction
 from .base import MultivariateWrapper, as_2d_features, as_2d_targets
@@ -116,9 +116,10 @@ class _ComposedMultiOutputWrapper(MultivariateWrapper):
         After the initial ``_n_draws`` draws, if ``config.CONV_ENABLED`` is set
         the multivariate R̂ (Vats & Knudson 2020, det-form) is evaluated on a
         subsample of test instances.  Additional draws are collected in
-        ``CONV_BATCH_SIZE`` chunks until R̂ < ``CONV_EPSILON``, the wall-clock
-        budget (``MAX_SAMPLE_SECONDS``) is exhausted, or ``CONV_MAX_SAMPLES`` is
-        reached.  No draws are discarded (i.i.d. MC, not MCMC).
+        ``DEFAULT_BATCH_SIZE`` chunks until R̂ < ``DEFAULT_EPSILON`` or
+        ``DEFAULT_MAX_SAMPLES`` is reached.  There is no wall-clock budget.  If
+        the cap is hit without converging it is recorded via
+        :func:`log_sample_cap_hit`.  No draws are discarded (i.i.d. MC, not MCMC).
         """
         X = as_2d_features(X)
         rng = np.random.default_rng(self._seed)
@@ -127,12 +128,8 @@ class _ComposedMultiOutputWrapper(MultivariateWrapper):
         if not getattr(_config, "CONV_ENABLED", False):
             return MultivariateSamplePrediction(samples=samples)
 
-        max_seconds: float = 120.0
-        start = time.monotonic()
-
+        last_rhat: float | None = None
         while samples.shape[1] < DEFAULT_MAX_SAMPLES:
-            if time.monotonic() - start >= max_seconds:
-                break
             pred_tmp = MultivariateSamplePrediction(samples=samples)
             try:
                 diag = assess_sample_prediction(
@@ -147,10 +144,18 @@ class _ComposedMultiOutputWrapper(MultivariateWrapper):
                     RuntimeWarning, stacklevel=2,
                 )
                 break
+            last_rhat = diag.rhat_max
             if diag.rhat_max < DEFAULT_EPSILON:
                 break
             extra = np.asarray(self._draw(X, DEFAULT_BATCH_SIZE, rng), dtype=np.float64)
             samples = np.concatenate([samples, extra], axis=1)
+        else:
+            # Cap reached without a convergence/exception break -> not converged.
+            log_sample_cap_hit(
+                model=type(self).__name__,
+                n_samples=int(samples.shape[1]),
+                rhat_max=last_rhat,
+            )
 
         return MultivariateSamplePrediction(samples=samples)
 
